@@ -473,7 +473,7 @@ function header(){
   if(isAdm())tabs.push(['usuarios','Usuários']);
   var alerts=m.cnt.v30+m.cnt.v60;
   return '<div class="top no-print"><div class="brand"><img class="logo" src="'+LOGO_EMB+'" alt="Rina Soluções Tecnológicas"><div><div class="eyebrow">Prefeitura de Bezerros - PE · Rina Soluções Tecnológicas</div><h1>Gestão de Contratos e Ordens de Fornecimento</h1></div></div>'+
-    '<div class="rightbar"><div class="refbox"><span class="small muted">Hoje</span> <b class="num">'+fmtDate(S.ref)+'</b><button class="btn sm" data-a="refresh">Atualizar dados</button></div>'+
+    '<div class="rightbar"><div class="refbox"><span class="small muted">Hoje</span> <b class="num">'+fmtDate(S.ref)+'</b><button class="btn sm" data-a="refresh">Atualizar dados</button>'+(isAdm()?'<button class="btn sm" data-a="backup" title="Salvar uma cópia de todos os dados no seu computador">Backup</button>':'')+'</div>'+
     '<div class="userbox"><div class="ub"><b>'+esc(S.profile?S.profile.nome:'')+'</b><span class="small muted">'+esc(roleLabel())+(role()==='secretaria'?' · '+esc(ownSecName()):'')+'</span></div><button class="btn sm" data-a="logout">Sair</button></div></div></div>'+
     '<div class="tabs no-print" role="tablist">'+tabs.map(function(t){
       var extra='';
@@ -864,6 +864,54 @@ function saveUser(id){
     await loadUsers();S.modal=null;render();toast('Usuário atualizado.');
   },function(msg){showIn('user-errs',msg)});
 }
+
+/* ---------- backup (somente administrador) ---------- */
+var BKP_TABLES=['secretarias','perfis','contratos','itens_contrato','ordens_fornecimento','itens_of'];
+function csvCell(v){
+  if(v===null||v===undefined)return '';
+  if(typeof v==='object')v=JSON.stringify(v);
+  v=String(v);
+  return /[";\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;
+}
+function toCsv(rows){
+  if(!rows.length)return '﻿';
+  var cols=[];rows.forEach(function(r){Object.keys(r).forEach(function(k){if(cols.indexOf(k)<0)cols.push(k)})});
+  return '﻿'+[cols.join(';')].concat(rows.map(function(r){return cols.map(function(c){return csvCell(r[c])}).join(';')})).join('\r\n')+'\r\n';
+}
+function stamp(){var d=new Date(),p=function(n){return String(n).padStart(2,'0')};return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'_'+p(d.getHours())+'h'+p(d.getMinutes())}
+function downloadBlob(name,text,type){
+  var a=document.createElement('a'),url=URL.createObjectURL(new Blob([text],{type:type}));
+  a.href=url;a.download=name;document.body.appendChild(a);a.click();
+  setTimeout(function(){URL.revokeObjectURL(url);a.remove()},1500);
+}
+async function writeFile(dir,name,text){
+  var fh=await dir.getFileHandle(name,{create:true}),w=await fh.createWritable();
+  await w.write(text);await w.close();
+}
+function doBackup(){
+  if(!isAdm())return;
+  // o seletor de pasta precisa ser aberto no clique, antes de qualquer espera
+  var canDir=typeof window.showDirectoryPicker==='function',pick=null;
+  if(canDir)pick=window.showDirectoryPicker({mode:'readwrite'}).catch(function(e){if(e&&e.name==='AbortError')return 'cancel';throw e});
+  return guard(async function(){
+    var root=null;
+    if(pick){root=await pick;if(root==='cancel'){toast('Backup cancelado.');return}}
+    var data={};
+    for(var i=0;i<BKP_TABLES.length;i++)data[BKP_TABLES[i]]=await fetchAll(BKP_TABLES[i],'id');
+    var st=stamp(),folder='backup-gestao-contratos_'+st;
+    var json=JSON.stringify({sistema:'Gestão de Contratos e Ordens de Fornecimento - Prefeitura de Bezerros - PE',gerado_em:new Date().toISOString(),gerado_por:S.profile?S.profile.email||S.profile.nome:'',tabelas:data},null,2);
+    var total=0;BKP_TABLES.forEach(function(t){total+=data[t].length});
+    if(root){
+      var dir=await root.getDirectoryHandle(folder,{create:true});
+      await writeFile(dir,'backup_completo.json',json);
+      for(var j=0;j<BKP_TABLES.length;j++)await writeFile(dir,BKP_TABLES[j]+'.csv',toCsv(data[BKP_TABLES[j]]));
+      toast('Backup salvo na pasta "'+folder+'" ('+total+' registros, '+(BKP_TABLES.length+1)+' arquivos).');
+    }else{
+      downloadBlob(folder+'.json',json,'application/json');
+      toast('Backup baixado ('+total+' registros). Este navegador não permite escolher a pasta; o arquivo foi para Downloads.');
+    }
+  },function(msg,e){toast('Falha no backup: '+msg)});
+}
 /* ---------- render ---------- */
 function brandFoot(){return '<footer class="brandfoot no-print"><img src="'+LOGO_FULL+'" alt="Rina Soluções Tecnológicas · Rina de Paula, Consultoria"><div class="muted small">Rina Soluções Tecnológicas · dados em nuvem (Supabase)</div></footer>'}
 function view(){
@@ -939,6 +987,7 @@ document.addEventListener('click',function(e){
     case 'refresh':guard(async function(){await loadAll();if(isAdm()&&S.tab==='usuarios')await loadUsers();render();toast('Dados atualizados.')});break;
     case 'retry':enterApp(S.user);break;
     case 'tab':S.tab=v;S.modal=null;S.askCancel=null;if(v==='nova')S.formMsg=null;render();window.scrollTo(0,0);if(v==='usuarios'&&isAdm())loadUsers().then(render);break;
+    case 'backup':doBackup();break;
     case 'edit-user':S.modal={type:'user',id:v};render();break;
     case 'save-user':saveUser(v);break;
     case 'reload-users':usersState='loading';render();loadUsers().then(render);break;

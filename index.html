@@ -297,12 +297,12 @@ var LOGO_FULL='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAvgAAAFzCAYAAABLvX1
 function todayBR(){try{return new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'})}catch(e){return isoOf(new Date())}}
 var realToday=todayBR();
 var SECS=[];
-var contracts=[],ofs=[],secretarias=[];
+var contracts=[],ofs=[],secretarias=[],users=[],usersState='idle',usersErr='';
 
 /* ---------- conexão com o Supabase ---------- */
 /* A Publishable key é pública por desenho: quem protege os dados é o RLS do banco. */
-var SUPABASE_URL='https://gestaodecontratosrina_pro.supabase.co';
-var SUPABASE_KEY='sb_publishable_NxnWBhv07PKV_FvxSgG1zg_bE1cH...';
+var SUPABASE_URL='https://aubwugpikjkznceknrfw.supabase.co';
+var SUPABASE_KEY='sb_publishable_NxnWbhv07PKV_FvxSgG1zg_bE1cHC3r';
 var CFG_KEY='rina-supabase-config';
 var sb=null;
 function getCfg(){
@@ -470,6 +470,7 @@ function header(){
   var m=metrics();
   var tabs=[['painel','Painel'],['contratos','Contratos'],['ofs','Ordens de Fornecimento']];
   if(canCreateOF())tabs.push(['nova',S.form.editId?'Editar OF':'Nova OF']);
+  if(isAdm())tabs.push(['usuarios','Usuários']);
   var alerts=m.cnt.v30+m.cnt.v60;
   return '<div class="top no-print"><div class="brand"><img class="logo" src="'+LOGO_EMB+'" alt="Rina Soluções Tecnológicas"><div><div class="eyebrow">Prefeitura de Bezerros - PE · Rina Soluções Tecnológicas</div><h1>Gestão de Contratos e Ordens de Fornecimento</h1></div></div>'+
     '<div class="rightbar"><div class="refbox"><span class="small muted">Hoje</span> <b class="num">'+fmtDate(S.ref)+'</b><button class="btn sm" data-a="refresh">Atualizar dados</button></div>'+
@@ -479,6 +480,7 @@ function header(){
       if(t[0]==='painel'&&alerts)extra='<span class="badge hot">'+alerts+'</span>';
       if(t[0]==='contratos')extra='<span class="badge">'+contracts.length+'</span>';
       if(t[0]==='ofs')extra='<span class="badge">'+ofs.length+'</span>';
+      if(t[0]==='usuarios'&&usersState==='ok')extra='<span class="badge">'+users.length+'</span>';
       return '<button class="tab" role="tab" aria-selected="'+(S.tab===t[0])+'" data-a="tab" data-v="'+t[0]+'">'+t[1]+extra+'</button>';
     }).join('')+'</div>';
 }
@@ -734,6 +736,8 @@ function modalHtml(){
     var o=ofs.filter(function(x){return x.id===m.id})[0];
     body='<div class="mhd no-print"><div><div class="eyebrow">Ordem de Fornecimento</div><h2 class="mono" style="font-family:var(--f-mono);font-size:20px">'+esc(o.num)+'</h2></div><button class="btn sm" data-a="close-modal">Fechar</button></div>'+ofPaper(o)+
       '<div class="mft no-print"><span class="muted small" style="margin-right:auto;align-self:center">Para imprimir, use Ctrl/Cmd + P no navegador. Se não abrir, copie o texto e cole em um editor.</span>'+(o.status==='Emitida'&&canManageOF(o.secId)?'<button class="btn" data-a="edit-of" data-v="'+o.id+'">Editar OF</button>':'')+'<button class="btn" data-a="copy-of" data-v="'+o.id+'">Copiar texto da OF</button><button class="btn primary" data-a="close-modal">Fechar</button></div>';
+  }else if(m.type==='user'){
+    body=userFormHtml(m);
   }else if(m.type==='text'){
     body='<div class="mhd"><h2>Copie o texto abaixo</h2><button class="btn sm" data-a="close-modal">Fechar</button></div><p class="muted small" style="margin-top:0">A cópia automática não está disponível neste ambiente. Selecione tudo (Ctrl/Cmd + A) e copie.</p><textarea class="in copybox" id="copybox" readonly>'+esc(m.text)+'</textarea>';
   }
@@ -805,12 +809,68 @@ function renderLogin(keepEmail){
   var f=document.getElementById('l-email');if(keepEmail&&f)f.value=keepEmail;
   var target=(S.loginErr&&keepEmail)?document.getElementById('l-pass'):f;if(target&&!S.cfgOpen)target.focus();
 }
+
+/* ---------- usuários (somente administrador) ---------- */
+var PERFIS={admin:'Administrador',secretaria:'Secretaria',consulta:'Consulta'};
+async function loadUsers(){
+  usersState='loading';usersErr='';
+  try{
+    var r=await sb.from('perfis').select('*').order('nome',{ascending:true});
+    if(r.error)throw r.error;
+    users=r.data||[];usersState='ok';
+  }catch(e){usersState='error';usersErr=errMsg(e)}
+}
+function secNameById(id){var x=secretarias.filter(function(s){return s.id===id})[0];return x?x.nome:''}
+function usersTable(){
+  var body=users.length?users.map(function(u){
+    var me=S.user&&u.id===S.user.id;
+    return '<tr><td data-l="Nome"><b>'+esc(u.nome)+'</b>'+(me?' <span class="small muted">(você)</span>':'')+'</td><td data-l="E-mail">'+(u.email?esc(u.email):'<span class="muted">—</span>')+'</td>'+
+      '<td>'+esc(PERFIS[u.perfil]||u.perfil)+'</td><td>'+(u.perfil==='secretaria'?esc(secNameById(u.secretaria_id)||'—'):'<span class="muted">—</span>')+'</td>'+
+      '<td>'+pill(u.ativo?{cls:'ok',label:'Ativo'}:{cls:'neutral',label:'Bloqueado'})+'</td>'+
+      '<td class="acts"><button class="btn sm" data-a="edit-user" data-v="'+u.id+'">Editar</button></td></tr>';
+  }).join(''):emptyRow(6,'Nenhum usuário encontrado.');
+  return '<div class="tw"><table class="rt"><thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Secretaria</th><th>Situação</th><th></th></tr></thead><tbody>'+body+'</tbody></table></div>';
+}
+function viewUsuarios(){
+  var inner;
+  if(usersState==='loading'||usersState==='idle')inner='<p class="muted">Carregando usuários…</p>';
+  else if(usersState==='error')inner='<div class="note bad" role="alert">'+esc(usersErr)+'</div><p><button class="btn" data-a="reload-users">Tentar novamente</button></p>';
+  else inner=usersTable();
+  return '<section class="card"><div class="toolbar"><div><h3 style="margin:0">Usuários e permissões</h3><div class="muted small">Defina quem pode criar e editar contratos e OFs.</div></div></div>'+inner+
+    '<div class="note info" style="margin-top:12px"><b>Como adicionar uma pessoa:</b> no Supabase, abra Authentication › Users › Add user (e-mail e senha). Ela aparecerá aqui como <b>Consulta</b> (só visualiza); clique em <b>Editar</b> para torná-la Administrador ou Secretaria.</div></section>';
+}
+function userFormHtml(m){
+  var u=users.filter(function(x){return x.id===m.id})[0];if(!u)return '';
+  var me=S.user&&u.id===S.user.id,dis=me?' disabled':'';
+  return '<div class="mhd"><div><div class="eyebrow">Usuário</div><h2 style="font-size:20px">'+esc(u.nome)+'</h2><div class="muted small">'+esc(u.email||'')+'</div></div><button class="btn sm" data-a="close-modal">Fechar</button></div>'+
+    '<div id="user-errs"></div><div class="fgrid">'+
+    '<div class="field span2"><label for="u-nome">Nome</label><input class="in" id="u-nome" value="'+esc(u.nome)+'"></div>'+
+    '<div class="field"><label for="u-perfil">Perfil</label><select class="in" id="u-perfil" data-i="u-perfil"'+dis+'>'+Object.keys(PERFIS).map(function(k){return '<option value="'+k+'"'+(u.perfil===k?' selected':'')+'>'+PERFIS[k]+'</option>'}).join('')+'</select></div>'+
+    '<div class="field" id="u-secwrap"'+(u.perfil==='secretaria'?'':' hidden')+'><label for="u-sec">Secretaria</label><select class="in" id="u-sec"><option value="">Selecione…</option>'+secretarias.map(function(x){return '<option value="'+x.id+'"'+(u.secretaria_id===x.id?' selected':'')+'>'+esc(x.nome)+'</option>'}).join('')+'</select></div>'+
+    '<div class="field span2"><label><input type="checkbox" id="u-ativo"'+(u.ativo?' checked':'')+dis+'> Acesso liberado (desmarque para bloquear)</label></div></div>'+
+    '<div class="muted small" style="margin-top:8px">'+(me?'Você não pode alterar o próprio perfil nem se bloquear. ':'')+'<b>Administrador</b>: cria e edita tudo. <b>Secretaria</b>: cria e edita só as OFs da própria secretaria. <b>Consulta</b>: apenas visualiza.</div>'+
+    '<div class="mft"><button class="btn" data-a="close-modal">Cancelar</button><button class="btn primary" data-a="save-user" data-v="'+u.id+'">Salvar</button></div>';
+}
+function saveUser(id){
+  var u=users.filter(function(x){return x.id===id})[0];if(!u)return;
+  var nome=document.getElementById('u-nome').value.trim(),perfil=document.getElementById('u-perfil').value,sec=document.getElementById('u-sec').value,ativo=document.getElementById('u-ativo').checked,errs=[];
+  if(!nome)errs.push('Informe o nome.');
+  if(perfil==='secretaria'&&!sec)errs.push('Escolha a secretaria deste usuário.');
+  if(errs.length){showIn('user-errs',errs.join(' '));return}
+  var row={nome:nome,perfil:perfil,secretaria_id:perfil==='secretaria'?sec:null,ativo:ativo};
+  return guard(async function(){
+    var r=await sb.from('perfis').update(row).eq('id',id).select('id');
+    if(r.error)throw r.error;mustAffect(r);
+    await loadUsers();S.modal=null;render();toast('Usuário atualizado.');
+  },function(msg){showIn('user-errs',msg)});
+}
 /* ---------- render ---------- */
 function brandFoot(){return '<footer class="brandfoot no-print"><img src="'+LOGO_FULL+'" alt="Rina Soluções Tecnológicas · Rina de Paula, Consultoria"><div class="muted small">Rina Soluções Tecnológicas · dados em nuvem (Supabase)</div></footer>'}
 function view(){
   if(S.tab==='contratos')return viewContratos();
   if(S.tab==='ofs')return viewOFs();
   if(S.tab==='nova')return viewNova();
+  if(S.tab==='usuarios'&&isAdm())return viewUsuarios();
   return viewPainel();
 }
 function render(){
@@ -876,9 +936,12 @@ document.addEventListener('click',function(e){
     case 'cfg-toggle':var ue2=document.getElementById('l-email').value;S.cfgOpen=!S.cfgOpen;S.cfgMsg=null;renderLogin(ue2);break;
     case 'cfg-save':cfgSave();break;
     case 'cfg-reset':cfgReset();break;
-    case 'refresh':guard(async function(){await loadAll();render();toast('Dados atualizados.')});break;
+    case 'refresh':guard(async function(){await loadAll();if(isAdm()&&S.tab==='usuarios')await loadUsers();render();toast('Dados atualizados.')});break;
     case 'retry':enterApp(S.user);break;
-    case 'tab':S.tab=v;S.modal=null;S.askCancel=null;if(v==='nova')S.formMsg=null;render();window.scrollTo(0,0);break;
+    case 'tab':S.tab=v;S.modal=null;S.askCancel=null;if(v==='nova')S.formMsg=null;render();window.scrollTo(0,0);if(v==='usuarios'&&isAdm())loadUsers().then(render);break;
+    case 'edit-user':S.modal={type:'user',id:v};render();break;
+    case 'save-user':saveUser(v);break;
+    case 'reload-users':usersState='loading';render();loadUsers().then(render);break;
     case 'rank':S.rank=v;render();break;
     case 'cfilter':S.cFilter=v;render();break;
     case 'open-contract':S.modal={type:'contract',id:v};render();break;
@@ -911,6 +974,7 @@ document.addEventListener('change',function(e){
   if(k==='osec'){S.oSec=t.value;render()}
   else if(k==='ostat'){S.oStat=t.value;render()}
   else if(k==='f-sec'){S.form.sec=t.value}
+  else if(k==='u-perfil'){var w=document.getElementById('u-secwrap');if(w)w.hidden=t.value!=='secretaria'}
   else if(k==='f-con'){S.form.contractId=t.value;S.form.qty={};S.formMsg=null;render()}
 });
 document.addEventListener('submit',function(e){if(e.target&&e.target.id==='login-form'){e.preventDefault();doLogin()}});
@@ -1103,6 +1167,7 @@ async function enterApp(user){
     await loadAll();
     S.form=blankForm();
     if(S.tab==='nova'&&!canCreateOF())S.tab='painel';
+    if(S.tab==='usuarios'){if(isAdm())await loadUsers();else S.tab='painel'}
     S.status='ready';
   }catch(e){S.loadErr=errMsg(e);S.status='error'}
   render();
@@ -1122,7 +1187,7 @@ async function doLogin(){
 async function logout(){
   try{if(sb)await sb.auth.signOut()}catch(e){}
   try{Object.keys(window.localStorage).filter(function(k){return /^sb-.*-auth-token/.test(k)}).forEach(function(k){window.localStorage.removeItem(k)})}catch(e){}
-  contracts=[];ofs=[];secretarias=[];SECS=[];
+  contracts=[];ofs=[];secretarias=[];SECS=[];users=[];usersState='idle';
   S.user=null;S.profile=null;S.status='login';S.modal=null;S.askCancel=null;S.askDel=null;S.askDelC=null;S.tab='painel';S.loginErr='';S.form=blankForm();
   render();
 }

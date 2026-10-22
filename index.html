@@ -787,7 +787,7 @@ function noProfileHtml(){
     '<div class="split" style="justify-content:center"><button class="btn" data-a="retry">Verificar de novo</button><button class="btn primary" data-a="logout">Sair</button></div></div></div>';
 }
 function loginHtml(){
-  var c=getCfg();
+  var c=getCfg(),showCfg=cfgProblems(c).length>0;
   return '<div class="login"><form class="logincard" id="login-form" novalidate>'+
     '<img class="loginlogo" src="'+LOGO_FULL+'" alt="Rina Soluções Tecnológicas · Rina de Paula, Consultoria">'+
     '<div class="eyebrow" style="text-align:center">Prefeitura de Bezerros - PE</div>'+
@@ -796,8 +796,8 @@ function loginHtml(){
     '<div class="field"><label for="l-pass">Senha</label><div class="passrow"><input class="in" id="l-pass" name="senha" type="'+(S.showPass?'text':'password')+'" autocomplete="current-password"><button type="button" class="btn sm" data-a="toggle-pass">'+(S.showPass?'Ocultar':'Mostrar')+'</button></div></div>'+
     (S.loginErr?'<div class="note bad" role="alert">'+esc(S.loginErr)+'</div>':'')+
     '<button class="btn primary" id="l-submit" type="submit" style="justify-content:center;padding:10px 12px">Entrar</button>'+
-    '<button type="button" class="linkbtn" data-a="cfg-toggle">'+(S.cfgOpen?'Ocultar':'Configurar')+' conexão com o Supabase</button>'+
-    (S.cfgOpen?'<div class="cfgbox"><div class="field"><label for="c-url">URL do projeto</label><input class="in mono" id="c-url" value="'+esc(c.url)+'" spellcheck="false" autocapitalize="none"></div>'+
+    (!showCfg?'':'<button type="button" class="linkbtn" data-a="cfg-toggle">'+(S.cfgOpen?'Ocultar':'Configurar')+' conexão com o Supabase</button>')+
+    (showCfg&&S.cfgOpen?'<div class="cfgbox"><div class="field"><label for="c-url">URL do projeto</label><input class="in mono" id="c-url" value="'+esc(c.url)+'" spellcheck="false" autocapitalize="none"></div>'+
       '<div class="field"><label for="c-key">Publishable key</label><input class="in mono" id="c-key" value="'+esc(c.key)+'" spellcheck="false" autocapitalize="none"></div>'+
       (S.cfgMsg?'<div class="note '+(S.cfgMsg.ok?'ok':'bad')+'" role="status">'+esc(S.cfgMsg.msg)+'</div>':'')+
       '<div class="split"><button type="button" class="btn primary sm" data-a="cfg-save">Salvar e testar</button><button type="button" class="btn sm" data-a="cfg-reset">Restaurar padrão</button></div>'+
